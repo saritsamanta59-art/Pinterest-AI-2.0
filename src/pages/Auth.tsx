@@ -206,7 +206,7 @@ export default function Auth() {
         
         {!isLogin && plan === 'pro' && (
           <p className="text-center text-slate-600 mb-6">
-            Sign up to continue to checkout for the Pro plan ($19).
+            Sign up to continue to checkout for the Pro plan ($1).
           </p>
         )}
         

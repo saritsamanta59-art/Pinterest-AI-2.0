@@ -1048,7 +1048,7 @@ export default function App() {
                       }}
                       className="w-full bg-amber-500 hover:bg-amber-600 text-white px-3 py-2 rounded-lg font-bold text-xs transition-colors"
                     >
-                      Upgrade to Pro ($19)
+                      Upgrade to Pro ($1)
                     </button>
                   </div>
                 )}

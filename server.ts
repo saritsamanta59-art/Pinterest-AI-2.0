@@ -69,7 +69,7 @@ async function startServer() {
               custom_id: userId,
               amount: {
                 currency_code: 'USD',
-                value: '19.00',
+                value: '1.00',
               },
               description: 'Pro Plan - 10 Pinterest Accounts',
             },

@@ -166,7 +166,7 @@ export default function Landing() {
             </div>
             <h3 className="text-2xl font-bold text-white mb-2">Pro</h3>
             <div className="flex items-baseline gap-2 mb-6">
-              <span className="text-4xl font-extrabold text-white">$19</span>
+              <span className="text-4xl font-extrabold text-white">$1</span>
               <span className="text-slate-400">/one-time</span>
             </div>
             <p className="text-slate-400 mb-8">For creators and agencies managing multiple brands.</p>
