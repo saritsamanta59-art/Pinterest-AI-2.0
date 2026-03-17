@@ -71,7 +71,7 @@ async function startServer() {
                 currency_code: 'USD',
                 value: '1.00',
               },
-              description: 'Pro Plan - 10 Pinterest Accounts',
+              description: 'Pro Plan - 1 Month',
             },
           ],
           application_context: {
