@@ -1,3 +1,4 @@
+import "dotenv/config";
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
@@ -39,7 +40,9 @@ async function startServer() {
     if (baseUrl.endsWith('/')) {
       baseUrl = baseUrl.slice(0, -1);
     }
-    return `${baseUrl}/api/auth/pinterest/callback`;
+    const finalUri = `${baseUrl}/api/auth/pinterest/callback`;
+    console.log("Generated Redirect URI:", finalUri);
+    return finalUri;
   };
 
   // PayPal Endpoints
