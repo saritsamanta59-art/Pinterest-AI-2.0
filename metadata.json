@@ -1,0 +1,5 @@
+{
+  "name": "User Dashboard",
+  "description": "A user dashboard application with Google Login, profile management, and settings.",
+  "requestFramePermissions": []
+}

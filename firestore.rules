@@ -1,0 +1,152 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: {userId} (Must match request.auth.uid)
+    // Fields:
+    //   - uid: string (required, immutable) - The user's Firebase Auth UID
+    //   - displayName: string (optional, max 100 chars) - The user's display name
+    //   - email: string (required, immutable, valid email) - The user's email address
+    //   - photoURL: string (optional, valid URL, max 1000 chars) - URL to the user's profile picture
+    //   - bio: string (optional, max 500 chars) - A short biography of the user
+    //   - theme: string (optional, enum: 'light', 'dark', 'system') - The user's preferred UI theme
+    //   - geminiApiKey: string (optional, max 200 chars) - The user's personal Gemini API key
+    //   - pinterestAccounts: list (optional, max 10 items) - List of connected Pinterest accounts
+    //   - createdAt: timestamp (required, immutable) - Timestamp when the profile was created
+    //   - updatedAt: timestamp (required) - Timestamp when the profile was last updated
+    //
+    // ===============================================================
+
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function uidUnchanged() {
+      return !('uid' in request.resource.data) || request.resource.data.uid == request.auth.uid;
+    }
+    
+    function uidNotModified() {
+      return !('uid' in request.resource.data) || request.resource.data.uid == resource.data.uid;
+    }
+    
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+    
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+    
+    function validStringLength(field, minLen, maxLen) {
+      return request.resource.data[field] is string &&
+        request.resource.data[field].size() >= minLen &&
+        request.resource.data[field].size() <= maxLen;
+    }
+    
+    function isValidOptionalString(field, minLen, maxLen) {
+      return !(field in request.resource.data) ||
+             (request.resource.data[field] is string &&
+              request.resource.data[field].size() >= minLen &&
+              request.resource.data[field].size() <= maxLen);
+    }
+    
+    function isValidUrl(url) {
+      return url is string && (url.matches("^https://.*") || url.matches("^http://.*"));
+    }
+    
+    function isValidOptionalUrl(field, maxLen) {
+      return !(field in request.resource.data) ||
+             request.resource.data[field] == "" ||
+             (isValidUrl(request.resource.data[field]) && request.resource.data[field].size() <= maxLen);
+    }
+    
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+    
+    function areImmutableFieldsUnchanged(fields) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
+    }
+
+    // ===============================================================
+    // Domain Validators
+    // ===============================================================
+
+    function isValidPinterestAccount(account) {
+      return account is map &&
+             account.keys().hasAll(['id', 'name', 'token']) &&
+             account.id is string && account.id.size() > 0 && account.id.size() <= 100 &&
+             account.name is string && account.name.size() > 0 && account.name.size() <= 100 &&
+             account.token is string && account.token.size() > 0 && account.token.size() <= 1000;
+    }
+
+    function isValidPinterestAccounts(accounts) {
+      return accounts is list && accounts.size() <= 10 &&
+             (accounts.size() == 0 || (isValidPinterestAccount(accounts[0]) &&
+             (accounts.size() < 2 || isValidPinterestAccount(accounts[1])) &&
+             (accounts.size() < 3 || isValidPinterestAccount(accounts[2])) &&
+             (accounts.size() < 4 || isValidPinterestAccount(accounts[3])) &&
+             (accounts.size() < 5 || isValidPinterestAccount(accounts[4])) &&
+             (accounts.size() < 6 || isValidPinterestAccount(accounts[5])) &&
+             (accounts.size() < 7 || isValidPinterestAccount(accounts[6])) &&
+             (accounts.size() < 8 || isValidPinterestAccount(accounts[7])) &&
+             (accounts.size() < 9 || isValidPinterestAccount(accounts[8])) &&
+             (accounts.size() < 10 || isValidPinterestAccount(accounts[9]))));
+    }
+
+    function isValidUserProfile(data) {
+      let allowedFields = ['uid', 'displayName', 'email', 'photoURL', 'bio', 'theme', 'plan', 'geminiApiKey', 'pinterestAccounts', 'createdAt', 'updatedAt'];
+      
+      return hasOnlyAllowedFields(allowedFields) &&
+             hasRequiredFields(['uid', 'email', 'createdAt', 'updatedAt']) &&
+             data.uid is string && data.uid == request.auth.uid &&
+             isValidEmail(data.email) && data.email.size() <= 254 &&
+             isValidOptionalString('displayName', 0, 100) &&
+             isValidOptionalUrl('photoURL', 1000) &&
+             isValidOptionalString('bio', 0, 500) &&
+             (!( 'theme' in data ) || data.theme in ['light', 'dark', 'system']) &&
+             (!( 'plan' in data ) || data.plan in ['free', 'pro']) &&
+             isValidOptionalString('geminiApiKey', 0, 200) &&
+             (!( 'pinterestAccounts' in data ) || isValidPinterestAccounts(data.pinterestAccounts)) &&
+             data.createdAt is timestamp &&
+             data.updatedAt is timestamp;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    match /users/{userId} {
+      // Users can only read their own profile
+      allow read: if isOwner(userId);
+      
+      // Users can create their own profile
+      allow create: if isOwner(userId) &&
+                       isValidUserProfile(request.resource.data) &&
+                       uidUnchanged();
+                       
+      // Users can update their own profile
+      allow update: if isOwner(userId) &&
+                       isValidUserProfile(request.resource.data) &&
+                       uidNotModified() &&
+                       areImmutableFieldsUnchanged(['createdAt', 'email']);
+                       
+      // Users cannot delete their profile directly from the client (or can they? Let's allow it for account deletion)
+      allow delete: if isOwner(userId);
+    }
+  }
+}
