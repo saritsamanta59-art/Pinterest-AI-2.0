@@ -1,5 +1,5 @@
 {
-  "name": "User Dashboard",
-  "description": "A user dashboard application with Google Login, profile management, and settings.",
+  "name": "PinGenius AI",
+  "description": "A Pinterest marketing tool to generate pins and CTAs.",
   "requestFramePermissions": []
 }
