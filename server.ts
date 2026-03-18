@@ -156,7 +156,7 @@ async function startServer() {
 
     try {
       // Exchange code for token
-      const tokenResponse = await fetch("https://api.pinterest.com/v5/oauth/token", {
+      const tokenResponse = await fetch("https://api-sandbox.pinterest.com/v5/oauth/token", {
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
@@ -220,7 +220,11 @@ async function startServer() {
     }
 
     const targetPath = req.url.replace('/api/pinterest', '');
-    const targetUrl = `https://api.pinterest.com/v5${targetPath}`;
+    
+    // Use sandbox API ONLY for creating pins, use production API for everything else
+    const isCreatingPin = targetPath === '/pins' && req.method === 'POST';
+    const baseUrl = isCreatingPin ? 'https://api-sandbox.pinterest.com/v5' : 'https://api.pinterest.com/v5';
+    const targetUrl = `${baseUrl}${targetPath}`;
     
     try {
       const options: RequestInit = {
