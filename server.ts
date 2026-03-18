@@ -45,8 +45,8 @@ async function startServer() {
     return finalUri;
   };
 
-  // PayPal Endpoints
-  app.post('/api/create-paypal-order', async (req, res) => {
+  // Payment Endpoints
+  app.post('/api/create-subscription', async (req, res) => {
     try {
       const { userId } = req.body;
       let baseUrl = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
@@ -98,7 +98,7 @@ async function startServer() {
     }
   });
 
-  app.get('/api/capture-paypal-order', async (req, res) => {
+  app.get('/api/capture-subscription', async (req, res) => {
     try {
       const { token } = req.query;
       if (!token) {

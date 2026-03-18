@@ -18,7 +18,7 @@ export default function Success() {
 
     const verifySession = async () => {
       try {
-        const response = await fetch(`/api/capture-paypal-order?token=${token}`);
+        const response = await fetch(`/api/capture-subscription?token=${token}`);
         if (!response.ok) {
           throw new Error(`Failed to verify session: ${response.statusText}`);
         }

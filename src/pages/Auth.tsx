@@ -19,7 +19,7 @@ export default function Auth() {
 
   const handleCheckoutRedirect = async (userId: string) => {
     try {
-      const response = await fetch('/api/create-paypal-order', {
+      const response = await fetch('/api/create-subscription', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId, plan: 'pro' })

@@ -53,6 +53,7 @@ export default function App() {
   // --- State ---
   const [keyword, setKeyword] = useState('');
   const [isGeneratingText, setIsGeneratingText] = useState(false);
+  const [isGeneratingCta, setIsGeneratingCta] = useState(false);
   const [loadingImages, setLoadingImages] = useState({}); 
   
   // Data for the 5 variations
@@ -280,8 +281,70 @@ export default function App() {
     }
   };
 
+  const handleGenerateCta = async () => {
+    if (!keyword.trim() || variations.length === 0) return;
+    setIsGeneratingCta(true);
+    setErrorMsg('');
+
+    const apiKey = getApiKey();
+    if (!apiKey) {
+      setErrorMsg('Please configure your Gemini API Key in Settings.');
+      setIsGeneratingCta(false);
+      return;
+    }
+
+    try {
+      const textPrompt = `
+        Act as a Pinterest Marketing Expert.
+        Context: User is creating pins for the keyword "${keyword}".
+        Current CTA idea: "${ctaText}".
+        
+        Task:
+        Generate 5 short, punchy, and different Call to Action (CTA) texts (max 5 words each) for 5 different Pinterest pins.
+        
+        Return JSON format:
+        {
+          "ctas": ["CTA 1", "CTA 2", "CTA 3", "CTA 4", "CTA 5"]
+        }
+      `;
+
+      const ai = new GoogleGenAI({ apiKey });
+      const textResponse = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: textPrompt,
+        config: {
+          responseMimeType: "application/json"
+        }
+      });
+
+      let rawAiText = textResponse.text || "{}";
+      rawAiText = rawAiText.replace(/```json/g, '').replace(/```/g, '').trim();
+      const aiContent = JSON.parse(rawAiText);
+      
+      if (aiContent.ctas && aiContent.ctas.length > 0) {
+        setVariations(prev => {
+          const newVars = [...prev];
+          newVars.forEach((v, idx) => {
+            v.ctaText = aiContent.ctas[idx % aiContent.ctas.length];
+          });
+          return newVars;
+        });
+        setCtaText(aiContent.ctas[currentVarIndex % aiContent.ctas.length]);
+      }
+
+    } catch (error) {
+      console.error("CTA Generation Failure:", error);
+      setErrorMsg(`CTA Generation failed: ${error.message}`);
+    } finally {
+      setIsGeneratingCta(false);
+    }
+  };
+
   const applyVariationData = (variation) => {
     setHeadline(variation.headline);
+    if (variation.ctaText !== undefined) {
+      setCtaText(variation.ctaText);
+    }
   };
 
   const handleVariationClick = (index) => {
@@ -1178,12 +1241,31 @@ export default function App() {
                     
                     {/* Call To Action */}
                     <div className="space-y-3">
-                      <label className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
-                        <MousePointerClick className="w-3 h-3" /> Call to Action (CTA)
-                      </label>
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+                          <MousePointerClick className="w-3 h-3" /> Call to Action (CTA)
+                        </label>
+                        <button
+                          onClick={handleGenerateCta}
+                          disabled={isGeneratingCta || variations.length === 0}
+                          className="text-xs flex items-center gap-1 bg-red-50 text-red-600 hover:bg-red-100 px-2 py-1 rounded-md font-semibold transition-colors disabled:opacity-50"
+                        >
+                          {isGeneratingCta ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                          Magic Enhance
+                        </button>
+                      </div>
                       <textarea 
                         value={ctaText}
-                        onChange={(e) => setCtaText(e.target.value)}
+                        onChange={(e) => {
+                          setCtaText(e.target.value);
+                          setVariations(prev => {
+                            const newVars = [...prev];
+                            if (newVars[currentVarIndex]) {
+                              newVars[currentVarIndex].ctaText = e.target.value;
+                            }
+                            return newVars;
+                          });
+                        }}
                         className="w-full p-3 rounded-lg border border-slate-200 text-slate-700 text-sm focus:border-red-500 outline-none resize-none h-16"
                         placeholder="e.g. Download Free PDF"
                       />

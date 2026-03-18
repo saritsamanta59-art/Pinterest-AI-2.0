@@ -11,16 +11,28 @@ export default function Landing() {
     if (user) {
       if (plan === 'pro') {
         // Redirect to checkout
-        fetch('/api/create-checkout-session', {
+        fetch('/api/create-subscription', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ userId: user.uid })
         })
-        .then(res => res.json())
+        .then(async res => {
+          if (!res.ok) {
+            const text = await res.text();
+            throw new Error(`Failed to create checkout session: ${res.status} ${text}`);
+          }
+          return res.json();
+        })
         .then(data => {
           if (data.url) window.location.href = data.url;
         })
-        .catch(err => console.error(err));
+        .catch(err => {
+          console.error('Checkout error:', err);
+          // Fallback if the user's browser blocks the request
+          if (err.message === 'Failed to fetch') {
+            console.error('This may be caused by an adblocker blocking the request.');
+          }
+        });
       } else {
         navigate('/app');
       }
