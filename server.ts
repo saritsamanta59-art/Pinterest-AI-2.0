@@ -220,11 +220,7 @@ async function startServer() {
     }
 
     const targetPath = req.url.replace('/api/pinterest', '');
-    
-    // Use sandbox API ONLY for creating pins, use production API for everything else
-    const isCreatingPin = targetPath === '/pins' && req.method === 'POST';
-    const baseUrl = isCreatingPin ? 'https://api-sandbox.pinterest.com/v5' : 'https://api.pinterest.com/v5';
-    const targetUrl = `${baseUrl}${targetPath}`;
+    const targetUrl = `https://api-sandbox.pinterest.com/v5${targetPath}`;
     
     try {
       const options: RequestInit = {
