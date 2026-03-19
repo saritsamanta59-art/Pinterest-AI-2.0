@@ -484,71 +484,104 @@ export default function App() {
     }
   };
 
+  const handlePinterestToken = async (token: string) => {
+    if (authWindowRef.current) {
+      authWindowRef.current.close();
+      authWindowRef.current = null;
+    }
+    
+    const maxAccounts = profile?.plan === 'pro' ? 10 : 1;
+    if (accounts.length >= maxAccounts) {
+      setErrorMsg(`Your current plan allows up to ${maxAccounts} Pinterest account${maxAccounts > 1 ? 's' : ''}. Please upgrade to add more.`);
+      setIsAuthenticating(false);
+      return;
+    }
+
+    // Fetch user profile to get the name
+    try {
+      const userRes = await fetch('/api/pinterest/user_account', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      let accountName = `Pinterest User ${accounts.length + 1}`;
+      let accountId = `user_${Date.now()}`;
+      
+      if (userRes.ok) {
+        const userData = await userRes.json();
+        accountName = userData.username || accountName;
+        accountId = userData.id || accountId;
+      }
+
+      const newAccount = {
+        id: accountId,
+        name: accountName,
+        token: token,
+      };
+
+      setAccounts(prev => {
+        const existing = prev.find(a => a.id === accountId);
+        let newAccounts;
+        if (existing) {
+          newAccounts = prev.map(a => a.id === accountId ? { ...a, token: token, name: accountName } : a);
+        } else {
+          const maxAccs = profile?.plan === 'pro' ? 10 : 1;
+          newAccounts = [...prev, newAccount].slice(0, maxAccs); // Max accounts based on plan
+        }
+        saveAccountsToProfile(newAccounts);
+        return newAccounts;
+      });
+      setActiveAccountId(accountId);
+      fetchBoardsForAccount(accountId, token);
+    } catch (e) {
+      console.error("Failed to fetch user profile", e);
+    } finally {
+      setIsAuthenticating(false);
+    }
+  };
+
   useEffect(() => {
-    const handleMessage = async (event) => {
+    // 1. Check URL parameters for token (fallback if popup redirects)
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlToken = urlParams.get('pinterest_token');
+    if (urlToken) {
+      // Clean up URL
+      window.history.replaceState({}, document.title, window.location.pathname);
+      handlePinterestToken(urlToken);
+    }
+
+    // 2. Check localStorage for token on mount (if popup loaded the app)
+    const storedToken = localStorage.getItem('pinterest_auth_token');
+    if (storedToken) {
+      localStorage.removeItem('pinterest_auth_token');
+      handlePinterestToken(storedToken);
+    }
+
+    // 3. Check localStorage for token via event (fallback for COOP issues)
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'pinterest_auth_token' && e.newValue) {
+        const token = e.newValue;
+        localStorage.removeItem('pinterest_auth_token');
+        handlePinterestToken(token);
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+
+    // 4. Check postMessage (standard popup communication)
+    const handleMessage = async (event: MessageEvent) => {
       // Validate origin is from AI Studio preview, localhost, or the current origin
       const origin = event.origin;
       if (!origin.endsWith('.run.app') && !origin.includes('localhost') && origin !== window.location.origin) {
         return;
       }
       if (event.data?.type === 'PINTEREST_AUTH_SUCCESS') {
-        if (authWindowRef.current) {
-          authWindowRef.current.close();
-          authWindowRef.current = null;
-        }
-        
-        const maxAccounts = profile?.plan === 'pro' ? 10 : 1;
-        if (accounts.length >= maxAccounts) {
-          setErrorMsg(`Your current plan allows up to ${maxAccounts} Pinterest account${maxAccounts > 1 ? 's' : ''}. Please upgrade to add more.`);
-          setIsAuthenticating(false);
-          return;
-        }
-
-        const token = event.data.token;
-        
-        // Fetch user profile to get the name
-        try {
-          const userRes = await fetch('/api/pinterest/user_account', {
-            headers: { 'Authorization': `Bearer ${token}` }
-          });
-          let accountName = `Pinterest User ${accounts.length + 1}`;
-          let accountId = `user_${Date.now()}`;
-          
-          if (userRes.ok) {
-            const userData = await userRes.json();
-            accountName = userData.username || accountName;
-            accountId = userData.id || accountId;
-          }
-
-          const newAccount = {
-            id: accountId,
-            name: accountName,
-            token: token,
-          };
-
-          setAccounts(prev => {
-            const existing = prev.find(a => a.id === accountId);
-            let newAccounts;
-            if (existing) {
-              newAccounts = prev.map(a => a.id === accountId ? { ...a, token: token, name: accountName } : a);
-            } else {
-              const maxAccs = profile?.plan === 'pro' ? 10 : 1;
-              newAccounts = [...prev, newAccount].slice(0, maxAccs); // Max accounts based on plan
-            }
-            saveAccountsToProfile(newAccounts);
-            return newAccounts;
-          });
-          setActiveAccountId(accountId);
-          fetchBoardsForAccount(accountId, token);
-        } catch (e) {
-          console.error("Failed to fetch user profile", e);
-        } finally {
-          setIsAuthenticating(false);
-        }
+        handlePinterestToken(event.data.token);
       }
     };
     window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
+
+    return () => {
+      window.removeEventListener('message', handleMessage);
+      window.removeEventListener('storage', handleStorage);
+    };
   }, [accounts.length, profile?.plan]);
 
   const handleRemoveAccount = (accountId) => {

@@ -49,7 +49,65 @@ export default function Auth() {
     }
   }, [plan]);
 
+  const handlePinterestToken = async (token: string) => {
+    if (authWindowRef.current) {
+      authWindowRef.current.close();
+      authWindowRef.current = null;
+    }
+    
+    try {
+      setLoading(true);
+      setError('');
+      await loginWithPinterest(token);
+      
+      // Get current user from Firebase Auth
+      const { auth } = await import('../firebase');
+      const currentUser = auth.currentUser;
+      
+      if (plan === 'pro' && currentUser) {
+        await handleCheckoutRedirect(currentUser.uid);
+      } else {
+        navigate('/app');
+      }
+    } catch (err: any) {
+      let errorMessage = err.message || 'Failed to authenticate with Pinterest';
+      if (err.code === 'auth/operation-not-allowed') {
+        errorMessage = 'Email/Password authentication must be enabled in the Firebase Console (Authentication > Sign-in method) to use Pinterest login.';
+      }
+      setError(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
+    // 1. Check URL parameters for token (fallback if popup redirects)
+    const urlParams = new URLSearchParams(window.location.search);
+    const urlToken = urlParams.get('pinterest_token');
+    if (urlToken) {
+      // Clean up URL
+      window.history.replaceState({}, document.title, window.location.pathname);
+      handlePinterestToken(urlToken);
+    }
+
+    // 2. Check localStorage for token on mount (if popup loaded the app)
+    const storedToken = localStorage.getItem('pinterest_auth_token');
+    if (storedToken) {
+      localStorage.removeItem('pinterest_auth_token');
+      handlePinterestToken(storedToken);
+    }
+
+    // 3. Check localStorage for token via event (fallback for COOP issues)
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'pinterest_auth_token' && e.newValue) {
+        const token = e.newValue;
+        localStorage.removeItem('pinterest_auth_token');
+        handlePinterestToken(token);
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+
+    // 4. Check postMessage (standard popup communication)
     const handleMessage = async (event: MessageEvent) => {
       const origin = event.origin;
       if (!origin.endsWith('.run.app') && !origin.includes('localhost') && origin !== window.location.origin) {
@@ -57,40 +115,15 @@ export default function Auth() {
       }
 
       if (event.data?.type === 'PINTEREST_AUTH_SUCCESS') {
-        if (authWindowRef.current) {
-          authWindowRef.current.close();
-          authWindowRef.current = null;
-        }
-        
-        const token = event.data.token;
-        try {
-          setLoading(true);
-          setError('');
-          await loginWithPinterest(token);
-          
-          // Get current user from Firebase Auth
-          const { auth } = await import('../firebase');
-          const currentUser = auth.currentUser;
-          
-          if (plan === 'pro' && currentUser) {
-            await handleCheckoutRedirect(currentUser.uid);
-          } else {
-            navigate('/app');
-          }
-        } catch (err: any) {
-          let errorMessage = err.message || 'Failed to authenticate with Pinterest';
-          if (err.code === 'auth/operation-not-allowed') {
-            errorMessage = 'Email/Password authentication must be enabled in the Firebase Console (Authentication > Sign-in method) to use Pinterest login.';
-          }
-          setError(errorMessage);
-        } finally {
-          setLoading(false);
-        }
+        handlePinterestToken(event.data.token);
       }
     };
 
     window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
+    return () => {
+      window.removeEventListener('message', handleMessage);
+      window.removeEventListener('storage', handleStorage);
+    };
   }, [loginWithPinterest, navigate, plan]);
 
   const handleSubmit = async (e: React.FormEvent) => {

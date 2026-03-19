@@ -91,7 +91,7 @@ service cloud.firestore {
              account.keys().hasAll(['id', 'name', 'token']) &&
              account.id is string && account.id.size() > 0 && account.id.size() <= 100 &&
              account.name is string && account.name.size() > 0 && account.name.size() <= 100 &&
-             account.token is string && account.token.size() > 0 && account.token.size() <= 1000;
+             account.token is string && account.token.size() > 0 && account.token.size() <= 4000;
     }
 
     function isValidPinterestAccounts(accounts) {

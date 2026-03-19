@@ -156,7 +156,11 @@ async function startServer() {
 
     try {
       // Exchange code for token
-      const tokenResponse = await fetch("https://api-sandbox.pinterest.com/v5/oauth/token", {
+      const baseUrl = process.env.PINTEREST_USE_SANDBOX === 'false' 
+        ? 'https://api.pinterest.com/v5' 
+        : 'https://api-sandbox.pinterest.com/v5'; // Defaulting to sandbox
+      
+      const tokenResponse = await fetch(`${baseUrl}/oauth/token`, {
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
@@ -183,24 +187,30 @@ async function startServer() {
           <body>
             <script>
               try {
+                // 1. Try localStorage (most reliable across same-origin popups)
+                localStorage.setItem('pinterest_auth_token', '${accessToken}');
+                localStorage.setItem('pinterest_auth_time', Date.now().toString());
+                
+                // 2. Try window.opener.postMessage
                 if (window.opener) {
                   window.opener.postMessage({ type: 'PINTEREST_AUTH_SUCCESS', token: '${accessToken}' }, '*');
                 }
               } catch (e) {
-                console.error("Error posting message to opener:", e);
+                console.error("Error communicating with opener:", e);
               }
+              
               // Attempt to close immediately
               window.close();
+              
               // Fallback to close after a short delay
               setTimeout(function() {
                 window.close();
               }, 500);
               
-              if (!window.opener) {
-                setTimeout(function() {
-                  window.location.href = '/';
-                }, 1000);
-              }
+              // If it's still open, redirect to the app with the token in the URL
+              setTimeout(function() {
+                window.location.href = '/app?pinterest_token=${accessToken}';
+              }, 1000);
             </script>
             <p>Authentication successful. This window should close automatically.</p>
           </body>
@@ -220,7 +230,10 @@ async function startServer() {
     }
 
     const targetPath = req.url.replace('/api/pinterest', '');
-    const targetUrl = `https://api-sandbox.pinterest.com/v5${targetPath}`;
+    const baseUrl = process.env.PINTEREST_USE_SANDBOX === 'false' 
+      ? 'https://api.pinterest.com/v5' 
+      : 'https://api-sandbox.pinterest.com/v5'; // Defaulting to sandbox
+    const targetUrl = `${baseUrl}${targetPath}`;
     
     try {
       const options: RequestInit = {
