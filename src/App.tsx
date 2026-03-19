@@ -111,6 +111,9 @@ export default function App() {
   
   const [boards, setBoards] = useState([]); 
   const [selectedBoard, setSelectedBoard] = useState('');
+  const [isCreatingBoard, setIsCreatingBoard] = useState(false);
+  const [newBoardName, setNewBoardName] = useState('');
+  const [showCreateBoard, setShowCreateBoard] = useState(false);
   
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
@@ -399,8 +402,64 @@ export default function App() {
     }
   };
 
+  const handleCreateBoard = async () => {
+    if (!newBoardName.trim()) return;
+    const account = accounts.find(a => a.id === activeAccountId);
+    if (!account || !account.token) return;
+
+    setIsCreatingBoard(true);
+    setErrorMsg('');
+
+    try {
+      const response = await fetch('/api/pinterest/boards', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${account.token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: newBoardName,
+          description: 'Created via PinGenius AI',
+          privacy: 'PUBLIC'
+        })
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        console.error("Pinterest API Error Response:", errText);
+        let errData = {};
+        try {
+          errData = JSON.parse(errText);
+        } catch (e) {}
+        const errorMsg = (errData as any).message || (errData as any).error || (errData as any).code || errText;
+        throw new Error(errorMsg || `API Status: ${response.status}`);
+      }
+
+      const newBoard = await response.json();
+      setBoards(prev => [newBoard, ...prev]);
+      setSelectedBoard(newBoard.id);
+      setNewBoardName('');
+      setShowCreateBoard(false);
+      setSuccessMessage(`Board "${newBoard.name}" created successfully!`);
+      setScheduleSuccess(true);
+      setTimeout(() => setScheduleSuccess(false), 3000);
+    } catch (e: any) {
+      console.error("Failed to create board:", e);
+      setErrorMsg(`Failed to create board: ${e.message}`);
+    } finally {
+      setIsCreatingBoard(false);
+    }
+  };
+
   const handleManualTokenSubmit = async () => {
-    if (!manualToken.trim()) return;
+    let token = manualToken.trim();
+    if (!token) return;
+    
+    // Remove 'Bearer ' prefix if user accidentally included it
+    if (token.toLowerCase().startsWith('bearer ')) {
+      token = token.substring(7).trim();
+    }
+
     const maxAccounts = profile?.plan === 'pro' ? 10 : 1;
     if (accounts.length >= maxAccounts) {
       setErrorMsg(`Your current plan allows up to ${maxAccounts} Pinterest account${maxAccounts > 1 ? 's' : ''}. Please upgrade to add more.`);
@@ -409,28 +468,34 @@ export default function App() {
     setIsAuthenticating(true);
     try {
       const userRes = await fetch('/api/pinterest/user_account', {
-        headers: { 'Authorization': `Bearer ${manualToken}` }
+        headers: { 'Authorization': `Bearer ${token}` }
       });
       let accountName = `Pinterest User ${accounts.length + 1}`;
       let accountId = `user_${Date.now()}`;
+      let accountType = 'UNKNOWN';
       
       if (userRes.ok) {
         const userData = await userRes.json();
         accountName = userData.username || accountName;
         accountId = userData.id || accountId;
+        accountType = userData.account_type || 'UNKNOWN';
+      }
+
+      if (accountType !== 'BUSINESS') {
+        setErrorMsg('Warning: This Pinterest account is not a Business account. You may not be able to publish pins. Please convert it to a Business account in your Pinterest settings.');
       }
 
       const newAccount = {
         id: accountId,
         name: accountName,
-        token: manualToken,
+        token: token,
       };
 
       setAccounts(prev => {
         const existing = prev.find(a => a.id === accountId);
         let newAccounts;
         if (existing) {
-          newAccounts = prev.map(a => a.id === accountId ? { ...a, token: manualToken, name: accountName } : a);
+          newAccounts = prev.map(a => a.id === accountId ? { ...a, token: token, name: accountName } : a);
         } else {
           newAccounts = [...prev, newAccount].slice(0, maxAccounts); // Max accounts based on plan
         }
@@ -438,7 +503,7 @@ export default function App() {
         return newAccounts;
       });
       setActiveAccountId(accountId);
-      fetchBoardsForAccount(accountId, manualToken);
+      fetchBoardsForAccount(accountId, token);
       setManualToken('');
       setShowManualToken(false);
     } catch (e) {
@@ -504,11 +569,17 @@ export default function App() {
       });
       let accountName = `Pinterest User ${accounts.length + 1}`;
       let accountId = `user_${Date.now()}`;
+      let accountType = 'UNKNOWN';
       
       if (userRes.ok) {
         const userData = await userRes.json();
         accountName = userData.username || accountName;
         accountId = userData.id || accountId;
+        accountType = userData.account_type || 'UNKNOWN';
+      }
+
+      if (accountType !== 'BUSINESS') {
+        setErrorMsg('Warning: This Pinterest account is not a Business account. You may not be able to publish pins. Please convert it to a Business account in your Pinterest settings.');
       }
 
       const newAccount = {
@@ -601,7 +672,7 @@ export default function App() {
     setScheduleSuccess(false);
     setErrorMsg('');
 
-    const imageData = canvasRef.current.toDataURL('image/png');
+    const imageData = canvasRef.current.toDataURL('image/jpeg', 0.9);
     const currentVar = variations[currentVarIndex] || {};
 
     const scheduleDateObj = new Date(scheduleDate);
@@ -612,20 +683,32 @@ export default function App() {
       const separator = baseDestinationUrl.includes('?') ? '&' : '?';
       finalLink = slug ? `${baseDestinationUrl}${separator}${slug}` : baseDestinationUrl;
     }
+    
+    if (finalLink && !finalLink.startsWith('http://') && !finalLink.startsWith('https://')) {
+      finalLink = `https://${finalLink}`;
+    }
 
     const payload: any = {
       board_id: selectedBoard,
-      description: currentVar.seoDescription, 
-      link: finalLink,
-      title: currentVar.seoTitle,
       media_source: {
         source_type: 'image_base64',
-        content_type: 'image/png',
+        content_type: 'image/jpeg',
         data: imageData.split(',')[1]
       }
     };
 
+    if (currentVar.seoDescription) payload.description = currentVar.seoDescription;
+    if (finalLink) payload.link = finalLink;
+    if (currentVar.seoTitle) payload.title = currentVar.seoTitle;
+
     if (!publishImmediately) {
+      const now = new Date();
+      const minScheduleTime = new Date(now.getTime() + 15 * 60000); // 15 minutes from now
+      if (scheduleDateObj < minScheduleTime) {
+        setErrorMsg('Scheduled time must be at least 15 minutes in the future.');
+        setIsScheduling(false);
+        return;
+      }
       payload.publish_at = scheduleDateObj.toISOString();
     }
 
@@ -642,9 +725,14 @@ export default function App() {
       });
 
       if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        const errorMsg = errData.message || errData.error || errData.code || JSON.stringify(errData);
-        throw new Error(errorMsg === '{}' ? `API Status: ${response.status}` : errorMsg);
+        const errText = await response.text();
+        console.error("Pinterest API Error Response:", errText);
+        let errData = {};
+        try {
+          errData = JSON.parse(errText);
+        } catch (e) {}
+        const errorMsg = (errData as any).message || (errData as any).error || (errData as any).code || errText;
+        throw new Error(errorMsg || `API Status: ${response.status}`);
       }
 
       const result = await response.json();
@@ -1513,16 +1601,44 @@ export default function App() {
                   </div>
 
                   <div>
-                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 block">Select Board</label>
-                    <select 
-                      value={selectedBoard}
-                      onChange={(e) => setSelectedBoard(e.target.value)}
-                      className="w-full p-3 rounded-xl border border-slate-200 bg-white text-sm font-medium text-slate-700 focus:border-red-500 focus:outline-none"
-                    >
-                      {boards.map(board => (
-                        <option key={board.id} value={board.id}>{board.name}</option>
-                      ))}
-                    </select>
+                    <div className="flex justify-between items-center mb-2">
+                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Select Board</label>
+                      <button 
+                        onClick={() => setShowCreateBoard(!showCreateBoard)}
+                        className="text-xs text-red-600 hover:text-red-700 font-semibold flex items-center gap-1"
+                      >
+                        <Plus className="w-3 h-3" /> {showCreateBoard ? 'Cancel' : 'New Board'}
+                      </button>
+                    </div>
+                    
+                    {showCreateBoard ? (
+                      <div className="flex gap-2 mb-3">
+                        <input 
+                          type="text" 
+                          placeholder="New board name"
+                          value={newBoardName}
+                          onChange={(e) => setNewBoardName(e.target.value)}
+                          className="flex-1 p-3 rounded-xl border border-slate-200 text-sm focus:border-red-500 outline-none"
+                        />
+                        <button 
+                          onClick={handleCreateBoard}
+                          disabled={isCreatingBoard || !newBoardName.trim()}
+                          className="bg-slate-900 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-slate-800 disabled:opacity-50 flex items-center gap-2"
+                        >
+                          {isCreatingBoard ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Create'}
+                        </button>
+                      </div>
+                    ) : (
+                      <select 
+                        value={selectedBoard}
+                        onChange={(e) => setSelectedBoard(e.target.value)}
+                        className="w-full p-3 rounded-xl border border-slate-200 bg-white text-sm font-medium text-slate-700 focus:border-red-500 focus:outline-none"
+                      >
+                        {boards.map(board => (
+                          <option key={board.id} value={board.id}>{board.name}</option>
+                        ))}
+                      </select>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-1 gap-4">
