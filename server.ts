@@ -156,9 +156,7 @@ async function startServer() {
 
     try {
       // Exchange code for token
-      const baseUrl = process.env.PINTEREST_USE_SANDBOX === 'false' 
-        ? 'https://api.pinterest.com/v5' 
-        : 'https://api-sandbox.pinterest.com/v5'; // Defaulting to sandbox
+      const baseUrl = 'https://api.pinterest.com/v5';
       
       const tokenResponse = await fetch(`${baseUrl}/oauth/token`, {
         method: "POST",
@@ -230,13 +228,9 @@ async function startServer() {
     }
 
     const targetPath = req.url.replace('/api/pinterest', '');
+    const baseUrl = 'https://api.pinterest.com/v5';
     
-    // Try sandbox first (as requested), then fallback to production
-    const isSandboxRequested = process.env.PINTEREST_USE_SANDBOX !== 'false';
-    const primaryBaseUrl = isSandboxRequested ? 'https://api-sandbox.pinterest.com/v5' : 'https://api.pinterest.com/v5';
-    const secondaryBaseUrl = isSandboxRequested ? 'https://api.pinterest.com/v5' : 'https://api-sandbox.pinterest.com/v5';
-    
-    const makeRequest = async (baseUrl: string) => {
+    const makeRequest = async () => {
       const targetUrl = `${baseUrl}${targetPath}`;
       const options: RequestInit = {
         method: req.method,
@@ -261,16 +255,8 @@ async function startServer() {
     };
 
     try {
-      let response = await makeRequest(primaryBaseUrl);
+      const response = await makeRequest();
       
-      // If authentication fails or forbidden, the token might be for the other environment
-      if (response.status === 401 || response.status === 403) {
-        const fallbackResponse = await makeRequest(secondaryBaseUrl);
-        if (fallbackResponse.ok || (fallbackResponse.status !== 401 && fallbackResponse.status !== 403)) {
-          response = fallbackResponse;
-        }
-      }
-
       const text = await response.text();
       let data;
       try {
