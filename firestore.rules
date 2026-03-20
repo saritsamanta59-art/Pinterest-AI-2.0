@@ -143,6 +143,26 @@ service cloud.firestore {
              (data.createdAt is string || data.createdAt is timestamp);
     }
 
+    function isValidScheduledPin(data) {
+      let allowedFields = ['user_id', 'account_id', 'board_id', 'title', 'description', 'link', 'image_url', 'status', 'publish_at', 'created_at', 'pinterest_pin_id', 'published_at', 'error_message', 'failed_at'];
+      
+      return hasOnlyAllowedFields(allowedFields) &&
+             hasRequiredFields(['user_id', 'account_id', 'board_id', 'status', 'created_at']) &&
+             data.user_id == request.auth.uid &&
+             data.account_id is string &&
+             data.board_id is string &&
+             (!( 'title' in data ) || data.title is string) &&
+             (!( 'description' in data ) || data.description is string) &&
+             (!( 'link' in data ) || data.link is string) &&
+             data.status in ['pending', 'processing', 'published', 'failed'] &&
+             (!( 'publish_at' in data ) || data.publish_at == null || data.publish_at is timestamp) &&
+             (data.created_at is timestamp) &&
+             (!( 'pinterest_pin_id' in data ) || data.pinterest_pin_id is string) &&
+             (!( 'published_at' in data ) || data.published_at is timestamp) &&
+             (!( 'error_message' in data ) || data.error_message is string) &&
+             (!( 'failed_at' in data ) || data.failed_at is timestamp);
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
@@ -176,6 +196,18 @@ service cloud.firestore {
                        uidNotModified() &&
                        areImmutableFieldsUnchanged(['createdAt']);
       allow delete: if isAuthenticated() && resource.data.uid == request.auth.uid;
+    }
+    match /scheduled_pins/{pinId} {
+      allow read: if isAuthenticated() && resource.data.user_id == request.auth.uid;
+      allow create: if isAuthenticated() &&
+                       isValidScheduledPin(request.resource.data) &&
+                       (!('user_id' in request.resource.data) || request.resource.data.user_id == request.auth.uid);
+      allow update: if isAuthenticated() &&
+                       resource.data.user_id == request.auth.uid &&
+                       isValidScheduledPin(request.resource.data) &&
+                       (!('user_id' in request.resource.data) || request.resource.data.user_id == resource.data.user_id) &&
+                       areImmutableFieldsUnchanged(['created_at']);
+      allow delete: if isAuthenticated() && resource.data.user_id == request.auth.uid;
     }
   }
 }

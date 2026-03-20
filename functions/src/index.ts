@@ -64,14 +64,16 @@ export const publishScheduledPins = functions.pubsub
         }
 
         // Construct Pinterest API payload
+        const base64Data = data.image_url.split(',')[1];
         const payload = {
           board_id: data.board_id,
           title: data.title,
           description: data.description || "",
           link: data.link || "",
           media_source: {
-            source_type: "image_url",
-            url: data.image_url,
+            source_type: "image_base64",
+            content_type: "image/jpeg",
+            data: base64Data,
           },
         };
 

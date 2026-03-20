@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { GoogleGenAI } from "@google/genai";
 import { useAuth } from './contexts/AuthContext';
 import { db } from './firebase';
-import { collection, addDoc, getDocs, query, where, orderBy, serverTimestamp } from 'firebase/firestore';
+import { collection, addDoc, getDocs, query, where, orderBy, serverTimestamp, Timestamp } from 'firebase/firestore';
 import { 
   Download, 
   Sparkles, 
@@ -386,16 +386,39 @@ export default function App() {
     setIsLoadingPins(true);
     try {
       const q = query(
-        collection(db, 'pins'),
-        where('uid', '==', profile.uid)
+        collection(db, 'scheduled_pins'),
+        where('user_id', '==', profile.uid)
       );
       const querySnapshot = await getDocs(q);
-      const pinsData: any[] = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const pinsData: any[] = querySnapshot.docs.map(doc => {
+        const data = doc.data();
+        return { 
+          id: doc.id, 
+          ...data,
+          // Map new schema to old UI expectations
+          imageUrl: data.image_url || data.imageUrl,
+          publishAt: data.publish_at ? (data.publish_at.toDate ? data.publish_at.toDate().toISOString() : data.publish_at) : data.publishAt,
+          createdAt: data.created_at ? (data.created_at.toDate ? data.created_at.toDate().toISOString() : data.created_at) : data.createdAt,
+          pinterestPinId: data.pinterest_pin_id || data.pinterestPinId,
+        };
+      });
       
       // Sort on client side to avoid needing a composite index in Firestore
       pinsData.sort((a, b) => {
-        const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : new Date(a.createdAt).getTime();
-        const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : new Date(b.createdAt).getTime();
+        // If one is pending and the other is published, pending comes first
+        if (a.status === 'pending' && b.status !== 'pending') return -1;
+        if (a.status !== 'pending' && b.status === 'pending') return 1;
+        
+        // If both are pending, sort by publishAt ascending
+        if (a.status === 'pending' && b.status === 'pending') {
+          const timeA = new Date(a.publishAt).getTime();
+          const timeB = new Date(b.publishAt).getTime();
+          return timeA - timeB;
+        }
+        
+        // Otherwise (published/failed), sort by createdAt descending
+        const timeA = new Date(a.createdAt).getTime();
+        const timeB = new Date(b.createdAt).getTime();
         return timeB - timeA;
       });
       
@@ -756,7 +779,38 @@ export default function App() {
         setIsScheduling(false);
         return;
       }
-      payload.publish_at = scheduleDateObj.toISOString();
+      
+      // ONLY save to Firestore `scheduled_pins`
+      if (profile?.uid) {
+        try {
+          await addDoc(collection(db, 'scheduled_pins'), {
+            user_id: profile.uid,
+            account_id: String(activeAccount.id),
+            board_id: String(selectedBoard),
+            title: payload.title ? String(payload.title) : '',
+            description: payload.description ? String(payload.description) : '',
+            link: payload.link ? String(payload.link) : '',
+            image_url: imageData, // base64 image data
+            status: 'pending',
+            publish_at: Timestamp.fromDate(scheduleDateObj), // UTC timestamp
+            created_at: serverTimestamp()
+          });
+          
+          const readableDate = scheduleDateObj.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: 'numeric', hour12: true });
+          setSuccessMessage(`Pin scheduled on ${activeAccount.name} for ${readableDate}!`);
+          setScheduleSuccess(true);
+          setTimeout(() => setScheduleSuccess(false), 5000);
+        } catch (dbError: any) {
+          console.error("Failed to save scheduled pin to database:", dbError);
+          setErrorMsg(`Failed to schedule pin: ${dbError.message}`);
+        } finally {
+          setIsScheduling(false);
+        }
+      } else {
+        setErrorMsg('User not authenticated.');
+        setIsScheduling(false);
+      }
+      return; // EXIT EARLY, do not call API
     }
 
     console.log(`Submitting to Pinterest API on behalf of ${activeAccount.name}...`);
@@ -796,30 +850,25 @@ export default function App() {
       // Save pin to Firestore
       if (profile?.uid) {
         try {
-          await addDoc(collection(db, 'pins'), {
-            uid: profile.uid,
-            pinterestPinId: result.id ? String(result.id) : '',
-            accountId: String(activeAccount.id),
-            boardId: String(selectedBoard),
+          await addDoc(collection(db, 'scheduled_pins'), {
+            user_id: profile.uid,
+            pinterest_pin_id: result.id ? String(result.id) : '',
+            account_id: String(activeAccount.id),
+            board_id: String(selectedBoard),
             title: payload.title ? String(payload.title) : '',
             description: payload.description ? String(payload.description) : '',
             link: payload.link ? String(payload.link) : '',
-            imageUrl: imageData,
-            status: publishImmediately ? 'published' : 'scheduled',
-            publishAt: publishImmediately ? null : scheduleDateObj.toISOString(),
-            createdAt: serverTimestamp()
+            image_url: imageData,
+            status: 'published',
+            published_at: serverTimestamp(),
+            created_at: serverTimestamp()
           });
         } catch (dbError) {
           console.error("Failed to save pin to database:", dbError);
         }
       }
 
-      if (publishImmediately) {
-        setSuccessMessage(`Pin published successfully on ${activeAccount.name}!`);
-      } else {
-        const readableDate = scheduleDateObj.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: 'numeric', hour12: true });
-        setSuccessMessage(`Pin scheduled on ${activeAccount.name} for ${readableDate}!`);
-      }
+      setSuccessMessage(`Pin published successfully on ${activeAccount.name}!`);
       setScheduleSuccess(true);
       setTimeout(() => setScheduleSuccess(false), 5000);
 
@@ -1833,7 +1882,7 @@ export default function App() {
                     <div className="absolute top-3 right-3 flex flex-col gap-2">
                       <span className={`px-2.5 py-1 rounded-full text-xs font-medium shadow-sm backdrop-blur-md ${
                         pin.status === 'published' ? 'bg-emerald-500/90 text-white' :
-                        pin.status === 'scheduled' ? 'bg-amber-500/90 text-white' :
+                        (pin.status === 'pending' || pin.status === 'scheduled' || pin.status === 'processing') ? 'bg-amber-500/90 text-white' :
                         'bg-red-500/90 text-white'
                       }`}>
                         {pin.status.charAt(0).toUpperCase() + pin.status.slice(1)}
@@ -1845,7 +1894,7 @@ export default function App() {
                     <p className="text-xs text-slate-500 line-clamp-2 mb-4 flex-1" title={pin.description}>{pin.description || 'No description'}</p>
                     
                     <div className="pt-4 border-t border-slate-100 flex flex-col gap-2 text-xs text-slate-500">
-                      {pin.status === 'scheduled' && pin.publishAt && (
+                      {(pin.status === 'pending' || pin.status === 'scheduled' || pin.status === 'processing') && pin.publishAt && (
                         <div className="flex items-center gap-1.5 text-amber-600 font-medium">
                           <Calendar className="w-3.5 h-3.5" />
                           {new Date(pin.publishAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: 'numeric', hour12: true })}
