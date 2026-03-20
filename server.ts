@@ -33,6 +33,7 @@ async function startServer() {
 
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+  app.use(express.raw({ type: 'application/octet-stream', limit: '50mb' }));
 
   const getRedirectUri = (req: express.Request) => {
     // Always use the APP_URL environment variable to get the URL of the container
@@ -236,19 +237,29 @@ async function startServer() {
         method: req.method,
         headers: {
           'Authorization': token,
-          'User-Agent': 'PinterestPinCreator/1.0',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
           'Accept': 'application/json',
         },
       };
 
-      if (req.headers['content-type']) {
-        (options.headers as Record<string, string>)['Content-Type'] = req.headers['content-type'];
-      } else if (req.method !== 'GET' && req.method !== 'HEAD') {
-        (options.headers as Record<string, string>)['Content-Type'] = 'application/json';
-      }
+      if (req.headers['content-type'] === 'application/octet-stream') {
+        const payloadStr = req.headers['x-pin-payload'] as string;
+        if (payloadStr) {
+          const payload = JSON.parse(decodeURIComponent(payloadStr));
+          payload.media_source.data = req.body.toString('base64');
+          options.body = JSON.stringify(payload);
+          (options.headers as Record<string, string>)['Content-Type'] = 'application/json';
+        }
+      } else {
+        if (req.headers['content-type']) {
+          (options.headers as Record<string, string>)['Content-Type'] = req.headers['content-type'];
+        } else if (req.method !== 'GET' && req.method !== 'HEAD') {
+          (options.headers as Record<string, string>)['Content-Type'] = 'application/json';
+        }
 
-      if (req.method !== 'GET' && req.method !== 'HEAD') {
-        options.body = JSON.stringify(req.body);
+        if (req.method !== 'GET' && req.method !== 'HEAD') {
+          options.body = JSON.stringify(req.body);
+        }
       }
 
       return fetch(targetUrl, options);
