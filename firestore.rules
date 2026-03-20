@@ -126,6 +126,23 @@ service cloud.firestore {
              data.updatedAt is timestamp;
     }
 
+    function isValidPin(data) {
+      let allowedFields = ['uid', 'pinterestPinId', 'accountId', 'boardId', 'title', 'description', 'link', 'imageUrl', 'status', 'publishAt', 'createdAt'];
+      
+      return hasOnlyAllowedFields(allowedFields) &&
+             hasRequiredFields(['uid', 'accountId', 'boardId', 'status', 'createdAt']) &&
+             data.uid == request.auth.uid &&
+             (!( 'pinterestPinId' in data ) || data.pinterestPinId is string) &&
+             data.accountId is string &&
+             data.boardId is string &&
+             (!( 'title' in data ) || data.title is string) &&
+             (!( 'description' in data ) || data.description is string) &&
+             (!( 'link' in data ) || data.link is string) &&
+             data.status in ['published', 'scheduled', 'failed'] &&
+             (!( 'publishAt' in data ) || data.publishAt == null || data.publishAt is string) &&
+             (data.createdAt is string || data.createdAt is timestamp);
+    }
+
     // ===============================================================
     // Rules
     // ===============================================================
@@ -147,6 +164,18 @@ service cloud.firestore {
                        
       // Users cannot delete their profile directly from the client (or can they? Let's allow it for account deletion)
       allow delete: if isOwner(userId);
+    }
+    match /pins/{pinId} {
+      allow read: if isAuthenticated() && resource.data.uid == request.auth.uid;
+      allow create: if isAuthenticated() &&
+                       isValidPin(request.resource.data) &&
+                       uidUnchanged();
+      allow update: if isAuthenticated() &&
+                       resource.data.uid == request.auth.uid &&
+                       isValidPin(request.resource.data) &&
+                       uidNotModified() &&
+                       areImmutableFieldsUnchanged(['createdAt']);
+      allow delete: if isAuthenticated() && resource.data.uid == request.auth.uid;
     }
   }
 }

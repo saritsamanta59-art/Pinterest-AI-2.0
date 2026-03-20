@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { GoogleGenAI } from "@google/genai";
 import { useAuth } from './contexts/AuthContext';
+import { db } from './firebase';
+import { collection, addDoc, getDocs, query, where, orderBy, serverTimestamp } from 'firebase/firestore';
 import { 
   Download, 
   Sparkles, 
@@ -103,6 +105,11 @@ export default function App() {
   const [showManualToken, setShowManualToken] = useState(false);
   const [baseDestinationUrl, setBaseDestinationUrl] = useState('');
   
+  // --- My Pins State ---
+  const [activeTab, setActiveTab] = useState('create'); // 'create' or 'mypins'
+  const [myPins, setMyPins] = useState([]);
+  const [isLoadingPins, setIsLoadingPins] = useState(false);
+  
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   
   const [isScheduling, setIsScheduling] = useState(false); 
@@ -175,6 +182,7 @@ export default function App() {
            - A viral headline (max 10 words).
            - A unique Pinterest SEO Title.
            - A unique Description (approx 30 words).
+           - A short, punchy Call to Action (CTA) text (max 5 words) related to the keyword and different for each variation.
            - 10 hashtags.
            - Suggested hex colors for "textColor" and "outlineColor".
         3. Suggest 2 hex colors for a fallback gradient.
@@ -186,6 +194,7 @@ export default function App() {
               "headline": "string",
               "seoTitle": "string",
               "seoDescription": "string",
+              "ctaText": "string",
               "hashtags": "string",
               "textColor": "#hex",
               "outlineColor": "#hex",
@@ -303,7 +312,7 @@ export default function App() {
         Current CTA idea: "${ctaText}".
         
         Task:
-        Generate 5 short, punchy, and different Call to Action (CTA) texts (max 5 words each) for 5 different Pinterest pins.
+        Generate 5 short, punchy, and different Call to Action (CTA) texts (max 5 words each) for 5 different Pinterest pins. Each CTA MUST be highly relevant to the keyword "${keyword}".
         
         Return JSON format:
         {
@@ -365,6 +374,39 @@ export default function App() {
       setSelectedBoard('');
     }
   }, [activeAccountId]);
+
+  useEffect(() => {
+    if (activeTab === 'mypins' && profile?.uid) {
+      fetchMyPins();
+    }
+  }, [activeTab, profile?.uid]);
+
+  const fetchMyPins = async () => {
+    if (!profile?.uid) return;
+    setIsLoadingPins(true);
+    try {
+      const q = query(
+        collection(db, 'pins'),
+        where('uid', '==', profile.uid)
+      );
+      const querySnapshot = await getDocs(q);
+      const pinsData: any[] = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      
+      // Sort on client side to avoid needing a composite index in Firestore
+      pinsData.sort((a, b) => {
+        const timeA = a.createdAt?.toMillis ? a.createdAt.toMillis() : new Date(a.createdAt).getTime();
+        const timeB = b.createdAt?.toMillis ? b.createdAt.toMillis() : new Date(b.createdAt).getTime();
+        return timeB - timeA;
+      });
+      
+      setMyPins(pinsData);
+    } catch (error) {
+      console.error("Error fetching pins:", error);
+      setErrorMsg("Failed to load your pins.");
+    } finally {
+      setIsLoadingPins(false);
+    }
+  };
 
   const fetchBoardsForAccount = async (accountId: string, providedToken?: string) => {
     const account = accounts.find(a => a.id === accountId);
@@ -676,7 +718,8 @@ export default function App() {
     setScheduleSuccess(false);
     setErrorMsg('');
 
-    const imageData = canvasRef.current.toDataURL('image/jpeg', 0.9);
+    // Use 0.7 quality to keep base64 size well under Firestore's 1MB document limit
+    const imageData = canvasRef.current.toDataURL('image/jpeg', 0.7);
     const currentVar = variations[currentVarIndex] || {};
 
     const scheduleDateObj = new Date(scheduleDate);
@@ -750,6 +793,27 @@ export default function App() {
 
       const result = await response.json();
       
+      // Save pin to Firestore
+      if (profile?.uid) {
+        try {
+          await addDoc(collection(db, 'pins'), {
+            uid: profile.uid,
+            pinterestPinId: result.id ? String(result.id) : '',
+            accountId: String(activeAccount.id),
+            boardId: String(selectedBoard),
+            title: payload.title ? String(payload.title) : '',
+            description: payload.description ? String(payload.description) : '',
+            link: payload.link ? String(payload.link) : '',
+            imageUrl: imageData,
+            status: publishImmediately ? 'published' : 'scheduled',
+            publishAt: publishImmediately ? null : scheduleDateObj.toISOString(),
+            createdAt: serverTimestamp()
+          });
+        } catch (dbError) {
+          console.error("Failed to save pin to database:", dbError);
+        }
+      }
+
       if (publishImmediately) {
         setSuccessMessage(`Pin published successfully on ${activeAccount.name}!`);
       } else {
@@ -1110,6 +1174,23 @@ export default function App() {
             </div>
             <h1 className="text-xl font-bold tracking-tight text-slate-900">PinGenius AI</h1>
           </div>
+          
+          {/* Tabs */}
+          <div className="hidden md:flex items-center bg-slate-100 p-1 rounded-xl">
+            <button
+              onClick={() => setActiveTab('create')}
+              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${activeTab === 'create' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              Create Pins
+            </button>
+            <button
+              onClick={() => setActiveTab('mypins')}
+              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${activeTab === 'mypins' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            >
+              My Pins
+            </button>
+          </div>
+
           <div className="flex items-center gap-4">
             <button 
               onClick={() => navigate('/profile')}
@@ -1136,6 +1217,7 @@ export default function App() {
         </div>
       </header>
 
+      {activeTab === 'create' && (
       <main className="max-w-7xl mx-auto p-4 lg:p-8 flex flex-col lg:flex-row gap-8">
         
         {/* Left Column: Controls */}
@@ -1711,6 +1793,87 @@ export default function App() {
           </div>
         </div>
       </main>
+      )}
+
+      {activeTab === 'mypins' && (
+        <main className="max-w-7xl mx-auto p-4 lg:p-8">
+          <div className="flex items-center justify-between mb-8">
+            <h2 className="text-2xl font-bold text-slate-900">My Pins</h2>
+            <button
+              onClick={fetchMyPins}
+              className="text-sm text-slate-500 hover:text-slate-900 flex items-center gap-2 transition-colors"
+            >
+              <Loader2 className={`w-4 h-4 ${isLoadingPins ? 'animate-spin' : ''}`} />
+              Refresh
+            </button>
+          </div>
+
+          {isLoadingPins ? (
+            <div className="flex items-center justify-center py-20">
+              <Loader2 className="w-8 h-8 animate-spin text-red-600" />
+            </div>
+          ) : myPins.length === 0 ? (
+            <div className="text-center py-20 bg-white rounded-2xl border border-slate-200 shadow-sm">
+              <ImageIcon className="w-12 h-12 text-slate-300 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-slate-900 mb-2">No pins yet</h3>
+              <p className="text-slate-500 mb-6">You haven't created or scheduled any pins yet.</p>
+              <button
+                onClick={() => setActiveTab('create')}
+                className="px-6 py-2 bg-red-600 text-white rounded-lg font-medium hover:bg-red-700 transition-colors"
+              >
+                Create your first pin
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+              {myPins.map((pin) => (
+                <div key={pin.id} className="bg-white rounded-2xl border border-slate-200 overflow-hidden shadow-sm hover:shadow-md transition-shadow flex flex-col">
+                  <div className="aspect-[2/3] relative bg-slate-100">
+                    <img src={pin.imageUrl} alt={pin.title || 'Pin'} className="w-full h-full object-cover" />
+                    <div className="absolute top-3 right-3 flex flex-col gap-2">
+                      <span className={`px-2.5 py-1 rounded-full text-xs font-medium shadow-sm backdrop-blur-md ${
+                        pin.status === 'published' ? 'bg-emerald-500/90 text-white' :
+                        pin.status === 'scheduled' ? 'bg-amber-500/90 text-white' :
+                        'bg-red-500/90 text-white'
+                      }`}>
+                        {pin.status.charAt(0).toUpperCase() + pin.status.slice(1)}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="p-4 flex-1 flex flex-col">
+                    <h3 className="font-semibold text-slate-900 line-clamp-2 mb-1" title={pin.title}>{pin.title || 'Untitled Pin'}</h3>
+                    <p className="text-xs text-slate-500 line-clamp-2 mb-4 flex-1" title={pin.description}>{pin.description || 'No description'}</p>
+                    
+                    <div className="pt-4 border-t border-slate-100 flex flex-col gap-2 text-xs text-slate-500">
+                      {pin.status === 'scheduled' && pin.publishAt && (
+                        <div className="flex items-center gap-1.5 text-amber-600 font-medium">
+                          <Calendar className="w-3.5 h-3.5" />
+                          {new Date(pin.publishAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: 'numeric', hour12: true })}
+                        </div>
+                      )}
+                      {pin.status === 'published' && pin.pinterestPinId && (
+                        <a 
+                          href={`https://pinterest.com/pin/${pin.pinterestPinId}`} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-1.5 text-red-600 hover:text-red-700 font-medium transition-colors"
+                        >
+                          <Globe className="w-3.5 h-3.5" />
+                          View on Pinterest
+                        </a>
+                      )}
+                      <div className="flex items-center gap-1.5 mt-1">
+                        <Clock className="w-3.5 h-3.5" />
+                        Created {new Date(pin.createdAt).toLocaleDateString()}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </main>
+      )}
       
       <footer className="w-full max-w-7xl mx-auto px-6 py-8 text-center border-t border-slate-200 mt-12">
         <Link to="/privacypolicy" className="text-sm text-slate-500 hover:text-slate-800 transition-colors">

@@ -61,6 +61,61 @@
         }
       },
       "required": ["uid", "email", "createdAt", "updatedAt"]
+    },
+    "Pin": {
+      "title": "Pin",
+      "description": "Stores a Pinterest pin created or scheduled by the user.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "The user's Firebase Auth UID."
+        },
+        "pinterestPinId": {
+          "type": "string",
+          "description": "The ID of the pin returned by Pinterest API."
+        },
+        "accountId": {
+          "type": "string",
+          "description": "The ID of the Pinterest account."
+        },
+        "boardId": {
+          "type": "string",
+          "description": "The ID of the Pinterest board."
+        },
+        "title": {
+          "type": "string",
+          "description": "The title of the pin."
+        },
+        "description": {
+          "type": "string",
+          "description": "The description of the pin."
+        },
+        "link": {
+          "type": "string",
+          "description": "The destination link of the pin."
+        },
+        "imageUrl": {
+          "type": "string",
+          "description": "The URL of the generated image."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["published", "scheduled", "failed"],
+          "description": "The status of the pin."
+        },
+        "publishAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "The scheduled publish time (if applicable)."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Timestamp when the pin was created in the app."
+        }
+      },
+      "required": ["uid", "accountId", "boardId", "status", "createdAt"]
     }
   },
   "firestore": {
@@ -69,6 +124,12 @@
         "$ref": "#/entities/UserProfile"
       },
       "description": "Collection of user profiles. The document ID must match the user's UID."
+    },
+    "/pins/{pinId}": {
+      "schema": {
+        "$ref": "#/entities/Pin"
+      },
+      "description": "Collection of pins created or scheduled by users."
     }
   }
 }
