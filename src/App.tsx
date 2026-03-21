@@ -4,6 +4,7 @@ import { GoogleGenAI } from "@google/genai";
 import { useAuth } from './contexts/AuthContext';
 import { db } from './firebase';
 import { collection, addDoc, getDocs, query, where, orderBy, serverTimestamp, Timestamp } from 'firebase/firestore';
+import { fromZonedTime, formatInTimeZone } from 'date-fns-tz';
 import { 
   Download, 
   Sparkles, 
@@ -125,16 +126,14 @@ export default function App() {
   const tomorrow = new Date();
   tomorrow.setDate(tomorrow.getDate() + 1);
   tomorrow.setHours(9, 0, 0, 0);
-  const formatDateTimeLocal = (date) => {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    const hours = String(date.getHours()).padStart(2, '0');
-    const minutes = String(date.getMinutes()).padStart(2, '0');
-    return `${year}-${month}-${day}T${hours}:${minutes}`;
-  };
-  const [scheduleDate, setScheduleDate] = useState(formatDateTimeLocal(tomorrow));
+  
+  const [scheduleTimeZone, setScheduleTimeZone] = useState('Asia/Kolkata');
+  const [scheduleDate, setScheduleDate] = useState(formatInTimeZone(tomorrow, 'Asia/Kolkata', "yyyy-MM-dd'T'HH:mm"));
   const [publishImmediately, setPublishImmediately] = useState(true);
+
+  // Update scheduleDate when timezone changes to keep the same visual time
+  // or you could just let it be. Actually, if they change timezone, the "local" time they selected remains the same, 
+  // but it means a different UTC time. That's usually what users expect.
 
   // Sync accounts with profile
   useEffect(() => {
@@ -745,7 +744,7 @@ export default function App() {
     const imageData = canvasRef.current.toDataURL('image/jpeg', 0.7);
     const currentVar = variations[currentVarIndex] || {};
 
-    const scheduleDateObj = new Date(scheduleDate);
+    const scheduleDateObj = fromZonedTime(scheduleDate, scheduleTimeZone);
     
     let finalLink = brandText ? `https://${brandText}` : '';
     if (baseDestinationUrl) {
@@ -793,10 +792,11 @@ export default function App() {
             image_url: imageData, // base64 image data
             status: 'pending',
             publish_at: Timestamp.fromDate(scheduleDateObj), // UTC timestamp
+            timezone: scheduleTimeZone,
             created_at: serverTimestamp()
           });
           
-          const readableDate = scheduleDateObj.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: 'numeric', hour12: true });
+          const readableDate = formatInTimeZone(scheduleDateObj, scheduleTimeZone, "MMM d, h:mm a zzz");
           setSuccessMessage(`Pin scheduled on ${activeAccount.name} for ${readableDate}!`);
           setScheduleSuccess(true);
           setTimeout(() => setScheduleSuccess(false), 5000);
@@ -1808,16 +1808,35 @@ export default function App() {
                     </div>
 
                     {!publishImmediately && (
-                      <div>
-                          <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 block">Publish Date</label>
-                          <div className="relative">
-                            <input 
-                              type="datetime-local" 
-                              value={scheduleDate}
-                              onChange={(e) => setScheduleDate(e.target.value)}
-                              className="w-full p-3 rounded-xl border border-slate-200 bg-white text-sm font-medium text-slate-700 focus:border-red-500 focus:outline-none"
-                            />
-                          </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 block">Publish Date & Time</label>
+                            <div className="relative">
+                              <input 
+                                type="datetime-local" 
+                                value={scheduleDate}
+                                onChange={(e) => setScheduleDate(e.target.value)}
+                                className="w-full p-3 rounded-xl border border-slate-200 bg-white text-sm font-medium text-slate-700 focus:border-red-500 focus:outline-none"
+                              />
+                            </div>
+                        </div>
+                        <div>
+                            <label className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2 block">Timezone</label>
+                            <div className="relative">
+                              <select 
+                                value={scheduleTimeZone}
+                                onChange={(e) => setScheduleTimeZone(e.target.value)}
+                                className="w-full p-3 rounded-xl border border-slate-200 bg-white text-sm font-medium text-slate-700 focus:border-red-500 focus:outline-none appearance-none"
+                              >
+                                {Intl.supportedValuesOf('timeZone').map(tz => (
+                                  <option key={tz} value={tz}>{tz}</option>
+                                ))}
+                              </select>
+                              <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                              </div>
+                            </div>
+                        </div>
                       </div>
                     )}
                     <div className="flex items-end mt-2">
@@ -1897,7 +1916,7 @@ export default function App() {
                       {(pin.status === 'pending' || pin.status === 'scheduled' || pin.status === 'processing') && pin.publishAt && (
                         <div className="flex items-center gap-1.5 text-amber-600 font-medium">
                           <Calendar className="w-3.5 h-3.5" />
-                          {new Date(pin.publishAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: 'numeric', hour12: true })}
+                          {pin.timezone ? formatInTimeZone(new Date(pin.publishAt), pin.timezone, "MMM d, h:mm a zzz") : new Date(pin.publishAt).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: 'numeric', hour12: true })}
                         </div>
                       )}
                       {pin.status === 'published' && pin.pinterestPinId && (
